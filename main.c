@@ -6,11 +6,23 @@
 
 #define PORT 2000
 
+void server_status(int status)
+{
+    if (status < 0) {
+        printf("\nHOST: OFFLINE \n");
+        printf("Files remain safely stored in ClientMemory\n");
+    }
+    else {
+        printf("\nHOST: ONLINE \n");
+        printf("Address: 127.0.0.1:%d\n", PORT);
+    }
+}
+
 int main(int argc, char const* argv[])
 {
     int status, valread, client_fd;
     struct sockaddr_in serv_addr;
-    char* hello = "Hello from client";
+    char* hello = "ping";
     char buffer[1024] = { 0 };
     if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         printf("\n Socket creation error \n");
@@ -33,12 +45,13 @@ int main(int argc, char const* argv[])
          = connect(client_fd, (struct sockaddr*)&serv_addr,
                    sizeof(serv_addr)))
         < 0) {
-        printf("\nConnection Failed \n");
+        server_status(-1);
         return -1;
     }
+    server_status(1);
 
     send(client_fd, hello, strlen(hello), 0);
-    printf("Hello message sent\n");
+    printf("ping send\n");
     while (1) {
         printf("Enter message to send to server: ");
         fgets(buffer, sizeof(buffer), stdin);
