@@ -36,11 +36,17 @@ int main(int argc, char const* argv[])
         printf("\nConnection Failed \n");
         return -1;
     }
-  
-    // subtract 1 for the null
-    // terminator at the end
+
     send(client_fd, hello, strlen(hello), 0);
     printf("Hello message sent\n");
+    while (1) {
+        printf("Enter message to send to server: ");
+        fgets(buffer, sizeof(buffer), stdin);
+        send(client_fd, buffer, strlen(buffer), 0);
+        printf("Message sent\n");
+        valread = read(client_fd, buffer, 1024 - 1);
+        printf("Server response: %s\n", buffer);
+    }
     valread = read(client_fd, buffer,
                    1024 - 1); 
     printf("%s\n", buffer);
