@@ -281,7 +281,7 @@ int main(int argc, char const* argv[])
         if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
             break;
         }
-        if (strncmp(buffer, "quit", 4) == 0) {
+        if (strcmp(buffer, "exit\n") == 0 || strcmp(buffer, "quit\n") == 0) {
             break;
         }
 
