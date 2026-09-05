@@ -1,11 +1,17 @@
 #include <arpa/inet.h>
+#include <dirent.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define PORT 2000
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 static int send_all(int client_fd, const void* data, size_t length)
 {
@@ -38,6 +44,34 @@ static int receive_exact(int client_fd, char* response, size_t length)
     }
 
     return 0;
+}
+
+static int expect_response(int client_fd, const char* expected)
+{
+    size_t length = strlen(expected);
+    char response[128];
+
+    if (length >= sizeof(response)
+        || receive_exact(client_fd, response, length) < 0
+        || memcmp(response, expected, length) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int send_file_bytes(int client_fd, FILE* fp)
+{
+    char data[1024];
+    size_t bytes_read;
+
+    while ((bytes_read = fread(data, 1, sizeof(data), fp)) > 0) {
+        if (send_all(client_fd, data, bytes_read) < 0) {
+            return -1;
+        }
+    }
+
+    return ferror(fp) ? -1 : 0;
 }
 
 int file_transfer(int client_fd, const char* filename)
@@ -81,17 +115,7 @@ int file_transfer(int client_fd, const char* filename)
         return -1;
     }
 
-    char data[1024];
-    size_t bytes_read;
-
-    while ((bytes_read = fread(data, 1, sizeof(data), fp)) > 0) {
-        if (send_all(client_fd, data, bytes_read) < 0) {
-            fclose(fp);
-            return -1;
-        }
-    }
-
-    int read_error = ferror(fp);
+    int read_error = send_file_bytes(client_fd, fp);
     fclose(fp);
     if (read_error) {
         return -1;
@@ -112,6 +136,89 @@ int file_transfer(int client_fd, const char* filename)
 
     char terminator;
     recv(client_fd, &terminator, 1, MSG_DONTWAIT);
+
+    return 0;
+}
+
+static int sync_client_memory(int client_fd)
+{
+    DIR* directory = opendir("./ClientMemory");
+    if (directory == NULL) {
+        perror("ClientMemory");
+        return -1;
+    }
+
+    size_t file_count = 0;
+    struct dirent* entry;
+    while ((entry = readdir(directory)) != NULL) {
+        char path[PATH_MAX];
+        struct stat file_info;
+        int path_length = snprintf(path, sizeof(path),
+                                   "./ClientMemory/%s", entry->d_name);
+        if (path_length < 0 || (size_t)path_length >= sizeof(path)
+            || stat(path, &file_info) != 0) {
+            continue;
+        }
+        if (S_ISREG(file_info.st_mode)) {
+            file_count++;
+        }
+    }
+    closedir(directory);
+
+    char header[128];
+    int header_length = snprintf(header, sizeof(header), "SYNC %zu\n",
+                                 file_count);
+    if (header_length < 0 || (size_t)header_length >= sizeof(header)
+        || send_all(client_fd, header, (size_t)header_length) < 0
+        || expect_response(client_fd, "SYNC_READY\n") < 0) {
+        return -1;
+    }
+
+    directory = opendir("./ClientMemory");
+    if (directory == NULL) {
+        return -1;
+    }
+
+    while ((entry = readdir(directory)) != NULL) {
+        char path[PATH_MAX];
+        struct stat file_info;
+        int path_length = snprintf(path, sizeof(path),
+                                   "./ClientMemory/%s", entry->d_name);
+        if (path_length < 0 || (size_t)path_length >= sizeof(path)
+            || stat(path, &file_info) != 0 || !S_ISREG(file_info.st_mode)) {
+            continue;
+        }
+
+        FILE* fp = fopen(path, "rb");
+        if (fp == NULL) {
+            closedir(directory);
+            return -1;
+        }
+
+        header_length = snprintf(header, sizeof(header), "FILE %s %lld\n",
+                                 entry->d_name,
+                                 (long long)file_info.st_size);
+        if (header_length < 0 || (size_t)header_length >= sizeof(header)
+            || send_all(client_fd, header, (size_t)header_length) < 0
+            || expect_response(client_fd, "READY\n") < 0
+            || send_file_bytes(client_fd, fp) < 0) {
+            fclose(fp);
+            closedir(directory);
+            return -1;
+        }
+        fclose(fp);
+
+        if (expect_response(client_fd, "FILE_STORED\n") < 0) {
+            closedir(directory);
+            return -1;
+        }
+    }
+    closedir(directory);
+
+    if (send_all(client_fd, "SYNC_DONE\n", strlen("SYNC_DONE\n")) < 0
+        || expect_response(client_fd, "SYNC_COMPLETE\n") < 0) {
+        return -1;
+    }
 
     return 0;
 }
@@ -176,6 +283,14 @@ int main(int argc, char const* argv[])
                 continue;
             }
             printf("File uploaded: %s\n", filename);
+            continue;
+        }
+        if (strcmp(buffer, "sync\n") == 0) {
+            if (sync_client_memory(client_fd) < 0) {
+                printf("Synchronization failed\n");
+                continue;
+            }
+            printf("ClientMemory synchronized\n");
             continue;
         }
         else if (send(client_fd, buffer, strlen(buffer), 0) == -1) {
