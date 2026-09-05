@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define DEFAULT_SERVER_IP "127.0.0.1"
 #define PORT 2000
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -228,7 +230,7 @@ static int sync_client_memory(int client_fd)
     return 0;
 }
 
-void server_status(int status)
+void server_status(int status, const char* server_ip)
 {
     if (status < 0) {
         printf("\nHOST: OFFLINE \n");
@@ -236,13 +238,14 @@ void server_status(int status)
     }
     else {
         printf("\nHOST: ONLINE \n");
-        printf("Address: 127.0.0.1:%d\n", PORT);
+        printf("Address: %s:%d\n", server_ip, PORT);
     }
 }
 
 int main(int argc, char const* argv[])
 {
     int status, valread, client_fd;
+    const char* server_ip = argc > 1 ? argv[1] : DEFAULT_SERVER_IP;
     struct sockaddr_in serv_addr;
     char buffer[1024] = { 0 };
     if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -255,7 +258,7 @@ int main(int argc, char const* argv[])
 
     // Convert IPv4 and IPv6 addresses from text to binary
     // form
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)
+    if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr)
         <= 0) {
         printf(
             "\nInvalid address/ Address not supported \n");
@@ -266,10 +269,12 @@ int main(int argc, char const* argv[])
          = connect(client_fd, (struct sockaddr*)&serv_addr,
                    sizeof(serv_addr)))
         < 0) {
-        server_status(-1);
+        fprintf(stderr, "Connection to %s:%d failed: %s\n",
+                server_ip, PORT, strerror(errno));
+        server_status(-1, server_ip);
         return -1;
     }
-    server_status(1);
+    server_status(1, server_ip);
 
     while (1) {
         printf("Enter message to send to server: ");
