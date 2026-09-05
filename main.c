@@ -83,7 +83,6 @@ int main(int argc, char const* argv[])
 {
     int status, valread, client_fd;
     struct sockaddr_in serv_addr;
-    char* hello = "ping";
     char buffer[1024] = { 0 };
     if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         printf("\n Socket creation error \n");
@@ -111,8 +110,6 @@ int main(int argc, char const* argv[])
     }
     server_status(1);
 
-    send(client_fd, hello, strlen(hello), 0);
-    printf("ping send\n");
     while (1) {
         printf("Enter message to send to server: ");
         if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
