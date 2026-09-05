@@ -212,6 +212,11 @@ static int sync_client_memory(int client_fd)
             closedir(directory);
             return -1;
         }
+        if (unlink(path) != 0) {
+            perror("Could not remove synchronized file from ClientMemory");
+            closedir(directory);
+            return -1;
+        }
     }
     closedir(directory);
 
@@ -282,6 +287,11 @@ int main(int argc, char const* argv[])
                 printf("File upload failed\n");
                 continue;
             }
+            if (strncmp(filename, "./ClientMemory/", 15) == 0
+                && unlink(filename) != 0) {
+                perror("Could not remove uploaded file from ClientMemory");
+                continue;
+            }
             printf("File uploaded: %s\n", filename);
             continue;
         }
@@ -311,3 +321,4 @@ int main(int argc, char const* argv[])
     close(client_fd);
     return 0;
 }
+
