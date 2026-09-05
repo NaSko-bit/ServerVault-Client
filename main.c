@@ -24,6 +24,22 @@ static int send_all(int client_fd, const void* data, size_t length)
     return 0;
 }
 
+static int receive_exact(int client_fd, char* response, size_t length)
+{
+    size_t received_total = 0;
+
+    while (received_total < length) {
+        ssize_t received = read(client_fd, response + received_total,
+                                length - received_total);
+        if (received <= 0) {
+            return -1;
+        }
+        received_total += (size_t)received;
+    }
+
+    return 0;
+}
+
 int file_transfer(int client_fd, const char* filename)
 {
     FILE* fp = fopen(filename, "rb");
@@ -52,6 +68,19 @@ int file_transfer(int client_fd, const char* filename)
         return -1;
     }
 
+    const char ready_response[] = "READY\n";
+    char response[sizeof(ready_response)];
+    if (receive_exact(client_fd, response, sizeof(ready_response) - 1) < 0) {
+        fclose(fp);
+        return -1;
+    }
+    if (memcmp(response, ready_response, sizeof(ready_response) - 1) != 0) {
+        printf("Unexpected server response: %.*s",
+               (int)(sizeof(ready_response) - 1), response);
+        fclose(fp);
+        return -1;
+    }
+
     char data[1024];
     size_t bytes_read;
 
@@ -64,7 +93,27 @@ int file_transfer(int client_fd, const char* filename)
 
     int read_error = ferror(fp);
     fclose(fp);
-    return read_error ? -1 : 0;
+    if (read_error) {
+        return -1;
+    }
+
+    const char complete_response[] = "UPLOAD_COMPLETE";
+    char complete_buffer[sizeof(complete_response)];
+    if (receive_exact(client_fd, complete_buffer,
+                      sizeof(complete_response) - 1) < 0) {
+        return -1;
+    }
+    if (memcmp(complete_buffer, complete_response,
+               sizeof(complete_response) - 1) != 0) {
+        printf("Unexpected server response: %.*s",
+               (int)(sizeof(complete_response) - 1), complete_buffer);
+        return -1;
+    }
+
+    char terminator;
+    recv(client_fd, &terminator, 1, MSG_DONTWAIT);
+
+    return 0;
 }
 
 void server_status(int status)
@@ -127,6 +176,7 @@ int main(int argc, char const* argv[])
                 continue;
             }
             printf("File uploaded: %s\n", filename);
+            continue;
         }
         else if (send(client_fd, buffer, strlen(buffer), 0) == -1) {
             perror("Error sending command");
